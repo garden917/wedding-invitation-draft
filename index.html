@@ -1574,7 +1574,11 @@ const CONFIG = {
   lng: 126.8369635,
   // 인트로 영상: mp4/webm 파일명을 넣으면 그대로 재생됩니다. 비우면 애니메이션 시안이 나옵니다.
   introVideo: '',
-  // 방명록을 실제로 모으려면 이 엔드포인트로 POST 합니다 (Supabase RPC, Apps Script 등).
+  // 공용 방명록·응모 DB (Supabase). 여기 값을 비우면 이 기기의 로컬 저장만 사용합니다.
+  // publishable(anon) 키는 공개되어도 되는 키이고, 실제 읽기/쓰기 범위는 테이블의 RLS 정책이 정합니다.
+  supabaseUrl: 'https://esltihjiljlucukpdsdj.supabase.co',
+  supabaseKey: 'sb_publishable_xfPcC7rcjNuglXNaWurCQQ_YR6otN20',
+  // (선택) 별도 엔드포인트로도 함께 보내고 싶을 때만 채웁니다.
   guestbookEndpoint: '',
   // 모의고사: correct 는 정답 index(0부터).
   // 1번은 확인된 실제 사실, 2~4번은 실제 TMI 확정 전까지의 임시 예시 문항입니다.
@@ -1619,6 +1623,31 @@ const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+};
+
+/* ---------- 02b. 공용 DB (Supabase REST) ---------- */
+const SB = {
+  on: !!(CONFIG.supabaseUrl && CONFIG.supabaseKey),
+  url: String(CONFIG.supabaseUrl || '').replace(/\/+$/, ''),
+  headers(extra) {
+    return Object.assign({ apikey: CONFIG.supabaseKey, Authorization: 'Bearer ' + CONFIG.supabaseKey }, extra || {});
+  },
+  async insert(table, row) {
+    const res = await fetch(this.url + '/rest/v1/' + table, {
+      method: 'POST',
+      headers: this.headers({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }),
+      body: JSON.stringify(row)
+    });
+    if (!res.ok) throw new Error(table + ' insert ' + res.status);
+    return true;
+  },
+  async select(table, query) {
+    const res = await fetch(this.url + '/rest/v1/' + table + (query ? '?' + query : ''), {
+      headers: this.headers(), cache: 'no-store'
+    });
+    if (!res.ok) throw new Error(table + ' select ' + res.status);
+    return res.json();
+  }
 };
 let toastTimer;
 function toast(msg) {
@@ -1905,6 +1934,10 @@ function claimGift() {
   store.set(GIFT_KEY, g);
   renderResult();
   toast('선물 교환권이 발급되었습니다');
+  // 응모 기록은 공용 DB로도 보낸다(이 테이블은 읽기가 차단되어 다른 사람에게 노출되지 않는다).
+  if (SB.on) {
+    SB.insert('quiz_submissions', { name: name, phone: phone, coupon_code: code, score: CONFIG.quiz.length }).catch(() => {});
+  }
   if (CONFIG.guestbookEndpoint) {
     fetch(CONFIG.guestbookEndpoint, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2335,14 +2368,43 @@ const GB_SEED = [
   { name: '최은결', msg: '두 분의 정원에 꽃 한 송이 놓고 갑니다.', look: { h: 5, hc: 4, o: 4, oc: 2, f: 0, p: 3 } }
 ];
 
-let gbEntries = store.get(GB_KEY, null);
-if (!Array.isArray(gbEntries) || !gbEntries.length) {
-  gbEntries = GB_SEED.map((s, i) => ({ id: 'seed' + i, name: s.name, msg: s.msg, look: s.look, seed: true }));
-  store.set(GB_KEY, gbEntries);
-}
+const gbSeedEntries = () => GB_SEED.map((s, i) => ({ id: 'seed' + i, name: s.name, msg: s.msg, look: s.look, seed: true }));
+// 이 기기에 남겨 둔 내 기록(로컬 백업). 예시 하객(seed)은 백업으로 세지 않는다.
+let gbLocal = store.get(GB_KEY, null);
+gbLocal = Array.isArray(gbLocal) ? gbLocal.filter(e => e && e.id && !e.seed) : [];
+// 공용 DB를 못 쓰는 상황에서도 화면이 비지 않도록: 내 기록이 없으면 예시 하객을 보여 준다.
+let gbEntries = gbLocal.length ? gbLocal.slice() : gbSeedEntries();
 let gbMyId = null;
 function gbLookOf(e) {
   return gbLook(e.look || GB_LEGACY[e.type] || GB_LEGACY.lilac);
+}
+
+/* ---------- 06b-1. 공용 방명록 불러오기 ---------- */
+const gbSig = (name, msg) => String(name || '').trim() + '\u0000' + String(msg || '').trim();
+
+async function gbLoadRemote() {
+  if (!SB.on) return;
+  let rows;
+  try {
+    rows = await SB.select('guestbook', 'select=id,name,message,avatar,created_at&order=created_at.asc&limit=300');
+  } catch (e) {
+    return; // 오프라인·차단 시에는 로컬 백업만으로 동작한다
+  }
+  if (!Array.isArray(rows)) return;
+  const remote = rows.map(r => ({
+    id: 'r' + r.id,
+    name: String(r.name || '').slice(0, 20),
+    msg: String(r.message || '').slice(0, 120),
+    look: gbLook(r.avatar),
+    at: r.created_at ? (Date.parse(r.created_at) || 0) : 0
+  })).filter(e => e.name && e.msg);
+  const seen = new Set(remote.map(e => gbSig(e.name, e.msg)));
+  // 공용 DB에 아직 없는 내 기록만 이 기기 몫으로 뒤에 붙인다.
+  const pending = gbLocal.filter(e => !seen.has(gbSig(e.name, e.msg)));
+  const merged = remote.concat(pending);
+  gbEntries = merged.length ? merged : gbSeedEntries();
+  store.set(GB_KEY, gbEntries.filter(e => !e.seed));
+  gbSync();
 }
 
 /* ---------- 06c. scene engine ---------- */
@@ -2650,6 +2712,7 @@ function gbCloseSheet() {
 if (gbScene) {
   gbMeasure();
   gbSync();
+  gbLoadRemote();
   window.addEventListener('resize', gbMeasure);
   if (window.ResizeObserver) new ResizeObserver(gbMeasure).observe(gbScene);
 
@@ -2767,6 +2830,10 @@ if (gbSheet) {
         node.waitUntil = performance.now() + 5000;
       }, 420);
     }, 140);
+    // 공용 DB로 보내 모든 기기에서 같은 방명록을 보게 한다 (실패해도 위 로컬 백업은 남는다).
+    if (SB.on) {
+      SB.insert('guestbook', { name: entry.name, message: entry.msg, avatar: entry.look }).catch(() => {});
+    }
     if (CONFIG.guestbookEndpoint) {
       fetch(CONFIG.guestbookEndpoint, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
