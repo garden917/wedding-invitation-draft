@@ -973,6 +973,15 @@ button{font-family:inherit;-webkit-tap-highlight-color:transparent}
 .info-row .v a{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:2px}
 .info-row .v a:hover{text-decoration-color:var(--ink-3)}
 
+/* 오시는 길 — 주차 안내 팁 한 줄 */
+.park-tip{
+  position:relative;margin:14px 0 0;padding:0 0 0 14px;
+  font-family:var(--ff-kr);font-size:.76rem;line-height:1.9;color:var(--ink-3);
+  letter-spacing:.01em;
+}
+.park-tip::before{content:"";position:absolute;left:1px;top:9px;width:4px;height:4px;background:rgba(194,161,106,.85)}
+.park-tip b{font-weight:500;color:var(--ink-2)}
+
 /* ---------- with love ---------- */
 .love{background:linear-gradient(180deg,#F6F0E4 0%,#F3EBDC 100%)}
 .acc{border-top:1px solid var(--line);margin-top:6px}
@@ -1680,10 +1689,11 @@ button{font-family:inherit;-webkit-tap-highlight-color:transparent}
     <div class="info-rows">
       <div class="info-row"><span class="k">Subway</span><span class="v"><b>5호선 발산역 7번 출구</b> 도보 약 6분 (약 300m)</span></div>
       <div class="info-row"><span class="k">Car</span><span class="v">내비게이션에 <b>더뉴컨벤션웨딩</b> 또는 <b>서울특별시 강서구 공항대로36길 57</b> 검색</span></div>
-      <div class="info-row"><span class="k">Parking</span><span class="v">건물 지하 <b>B1~B4</b> 및 외부 주차장 이용 가능</span></div>
+      <div class="info-row"><span class="k">Parking</span><span class="v">건물 지하주차장 <b>B1~B4</b> · <b>2시간 무료</b> (자동 등록)<br>만차 시 건너편 <b>이대서울병원</b> · <b>2시간 무료</b> (별도 등록)</span></div>
       <div class="info-row"><span class="k">Tel</span><span class="v"><a href="tel:16613303"><b>1661-3303</b></a></span></div>
       <div class="info-row"><span class="k">Site</span><span class="v"><a href="https://thenewwed.kr/Location" target="_blank" rel="noopener">더뉴컨벤션 공식 오시는 길 안내</a></span></div>
     </div>
+    <p class="park-tip">주말 피크 시간에는 출차가 붐비니 <b>5호선 발산역 7번 출구</b> 쪽 대중교통 이용이 가장 편합니다.</p>
   </section>
 
   <!-- ============================================================
